@@ -1,0 +1,19 @@
+{
+  "name": "incentive-drive",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/dealer-portal",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:web": "npm -w apps/web run dev",
+    "dev:dealer": "npm -w apps/dealer-portal run dev",
+    "dev:api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
+    "build": "npm -w packages/shared run build && npm -w apps/web run build && npm -w apps/dealer-portal run build",
+    "lint": "npm -w packages/shared run lint && npm -w apps/web run lint && npm -w apps/dealer-portal run lint",
+    "typecheck": "npm -w packages/shared run typecheck && npm -w apps/web run typecheck && npm -w apps/dealer-portal run typecheck",
+    "test": "npm -w apps/web run test && npm -w apps/dealer-portal run test",
+    "test:api": "cd apps/api && python -m pytest"
+  }
+}
