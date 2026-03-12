@@ -32,14 +32,20 @@ class MarketCheckIncentive:
     name: str
     make: str
     model: str | None
-    incentive_type: str
+    trim: str | None
+    incentive_type: str  # cash, lease, apr
     amount: float | None
     max_amount: float | None
     percentage: float | None
+    monthly_payment: float | None
+    lease_term: int | None
+    due_at_signing: float | None
     start_date: str | None
     end_date: str | None
     description: str
+    disclaimer: str | None
     source_url: str
+    photo_url: str | None
 
 
 @dataclass
@@ -164,9 +170,10 @@ class MarketCheckClient:
     # ---- Public methods ----
 
     def get_oem_incentives(
-        self, make: str, model: str | None = None, zip_code: str | None = None
+        self, make: str, model: str | None = None, zip_code: str | None = None,
+        offer_type: str | None = None, rows: int = 50,
     ) -> list[MarketCheckIncentive]:
-        """Fetch OEM incentives for a given make/model/zip."""
+        """Fetch OEM incentives via /v2/search/car/incentive/oem endpoint."""
         if self._mock:
             results = []
             for stub in _STUB_INCENTIVES:
@@ -174,32 +181,105 @@ class MarketCheckClient:
                     if model and stub.get("model") and stub["model"].lower() != model.lower():
                         continue
                     results.append(
-                        MarketCheckIncentive(source_url="https://www.marketcheck.com", **stub)
+                        MarketCheckIncentive(
+                            source_url="https://www.marketcheck.com",
+                            trim=None, monthly_payment=None, lease_term=None,
+                            due_at_signing=None, disclaimer=None, photo_url=None,
+                            **stub,
+                        )
                     )
             return results
 
-        params: dict = {"make": make}
+        params: dict = {"make": make, "rows": rows}
         if model:
             params["model"] = model
         if zip_code:
             params["zip"] = zip_code
+        if offer_type:
+            params["offer_type"] = offer_type
 
-        data = self._get("/incentives", params)
+        data = self._get("/search/car/incentive/oem", params)
         incentives = []
-        for item in data.get("incentives", []):
+        seen_keys: set[str] = set()  # dedupe by make+model+trim+type+amount
+
+        for item in data.get("listings", []):
+            offer = item.get("offer") or {}
+            vehicles = offer.get("vehicles") or [{}]
+            v = vehicles[0] if vehicles else {}
+            amounts = offer.get("amounts") or [{}]
+            a = amounts[0] if amounts else {}
+
+            inc_make = v.get("make", make)
+            inc_model = v.get("model")
+            inc_trim = v.get("trim")
+            inc_type = offer.get("offer_type", "cash")
+
+            # Extract amount based on offer type
+            amount = None
+            monthly = None
+            lease_term = None
+            due_at_signing = None
+            percentage = None
+
+            if inc_type == "cash":
+                amount = offer.get("cashback_amount") or a.get("cash")
+            elif inc_type == "lease":
+                monthly = a.get("monthly")
+                lease_term = a.get("term")
+                due_at_signing = offer.get("due_at_signing")
+            elif inc_type == "apr":
+                percentage = a.get("apr")
+
+            # Build a readable name
+            titles = offer.get("titles") or []
+            offers_text = offer.get("offers") or []
+            if titles:
+                name = f"{inc_make} {titles[0]} - {inc_type.upper()}"
+            else:
+                name = f"{inc_make} {inc_model or ''} {inc_trim or ''} - {inc_type.upper()}".strip()
+
+            # Dedupe: same make+model+trim+type+amount is the same offer across regions
+            dedup_key = f"{inc_make}|{inc_model}|{inc_trim}|{inc_type}|{amount}|{monthly}"
+            if dedup_key in seen_keys:
+                continue
+            seen_keys.add(dedup_key)
+
+            # Dates
+            start_date = offer.get("valid_from")
+            end_date = offer.get("valid_through")
+
+            # Description from offers text
+            description = "; ".join(offers_text) if offers_text else ""
+
+            # Disclaimers
+            disclaimers = offer.get("disclaimers") or []
+            disclaimer = disclaimers[0] if disclaimers else None
+
+            # Photo
+            photos = offer.get("photo_links") or []
+            photo_url = photos[0] if photos else None
+
+            source = item.get("source", "marketcheck.com")
+
             incentives.append(
                 MarketCheckIncentive(
-                    name=item.get("title", ""),
-                    make=item.get("make", make),
-                    model=item.get("model"),
-                    incentive_type=item.get("type", "cash"),
-                    amount=item.get("cash_amount"),
-                    max_amount=item.get("cash_amount"),
-                    percentage=item.get("apr_rate"),
-                    start_date=item.get("start_date"),
-                    end_date=item.get("end_date"),
-                    description=item.get("description", ""),
-                    source_url=item.get("url", "https://www.marketcheck.com"),
+                    name=name,
+                    make=inc_make,
+                    model=inc_model,
+                    trim=inc_trim,
+                    incentive_type=inc_type,
+                    amount=amount,
+                    max_amount=amount,
+                    percentage=percentage,
+                    monthly_payment=monthly,
+                    lease_term=lease_term,
+                    due_at_signing=due_at_signing,
+                    start_date=start_date,
+                    end_date=end_date,
+                    description=description,
+                    disclaimer=disclaimer,
+                    source_url=f"https://{source}" if not source.startswith("http") else source,
+                    photo_url=photo_url,
                 )
             )
         return incentives
@@ -307,8 +387,39 @@ class MarketCheckClient:
         """Convert a MarketCheckIncentive to a dict matching the incentive_programs schema."""
         if inc.incentive_type == "apr":
             value_type = "rate_reduction"
+        elif inc.incentive_type == "lease":
+            value_type = "fixed"  # lease deals stored as fixed amount (monthly payment)
         else:
             value_type = "fixed"
+
+        # Map offer type to purchase type
+        purchase_types = {
+            "cash": ["cash"],
+            "lease": ["lease"],
+            "apr": ["finance"],
+        }
+
+        # Parse dates from MM/DD/YYYY to ISO
+        start_date = inc.start_date
+        end_date = inc.end_date
+        if start_date and "/" in start_date:
+            try:
+                from datetime import datetime as dt
+                start_date = dt.strptime(start_date, "%m/%d/%Y").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        if end_date and "/" in end_date:
+            try:
+                from datetime import datetime as dt
+                end_date = dt.strptime(end_date, "%m/%d/%Y").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+        vehicle_criteria: dict = {"make": inc.make}
+        if inc.model:
+            vehicle_criteria["model"] = inc.model
+        if inc.trim:
+            vehicle_criteria["trim"] = inc.trim
 
         return {
             "name": inc.name,
@@ -317,10 +428,7 @@ class MarketCheckClient:
             "geographic_scope": "national",
             "eligible_states": [],
             "eligible_zips": [],
-            "vehicle_criteria": {
-                "make": inc.make,
-                "model": inc.model,
-            },
+            "vehicle_criteria": vehicle_criteria,
             "buyer_criteria": {},
             "incentive_value_type": value_type,
             "incentive_amount": inc.amount,
@@ -328,13 +436,16 @@ class MarketCheckClient:
             "incentive_percentage": inc.percentage,
             "stackable_with": [],
             "mutually_exclusive_with": [],
-            "start_date": inc.start_date,
-            "end_date": inc.end_date,
+            "eligible_purchase_types": purchase_types.get(inc.incentive_type, ["cash", "finance", "lease"]),
+            "start_date": start_date,
+            "end_date": end_date,
             "application_deadline": None,
             "funding_status": "open",
-            "claim_mechanism": "point_of_sale",
+            "claim_mechanism": "lease_reduction" if inc.incentive_type == "lease" else "point_of_sale",
             "last_verified": datetime.now(timezone.utc).isoformat(),
             "source_url": inc.source_url,
-            "confidence_score": 0.9,
+            "confidence_score": 0.95,
             "is_active": True,
+            "description": inc.description,
+            "disclaimer": inc.disclaimer,
         }

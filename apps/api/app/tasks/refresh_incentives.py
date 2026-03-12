@@ -41,11 +41,31 @@ SPIDER_MODULES = [
     "scrapers.nyserda_spider",
 ]
 
-# OEM makes to query via MarketCheck
+# OEM makes to query via MarketCheck (matches calculator VEHICLE_MODELS)
 MARKETCHECK_MAKES = [
-    "Hyundai", "Kia", "Toyota", "Honda", "Ford",
-    "Chevrolet", "Nissan", "Volkswagen", "Tesla", "Ram", "Dodge",
+    "Acura", "Audi", "BMW", "Buick", "Cadillac", "Chevrolet", "Chrysler",
+    "Dodge", "Fiat", "Ford", "Genesis", "GMC", "Honda", "Hyundai",
+    "Infiniti", "Jaguar", "Jeep", "Kia", "Land Rover", "Lexus",
+    "Lincoln", "Lucid", "Mazda", "Mercedes-Benz", "Mini", "Mitsubishi",
+    "Nissan", "Polestar", "Porsche", "Ram", "Rivian", "Subaru",
+    "Tesla", "Toyota", "Volkswagen", "Volvo",
 ]
+
+
+def _parse_date(val: str | None) -> datetime | None:
+    """Parse a date string (ISO or MM/DD/YYYY) to a datetime, or return None."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val
+    try:
+        return datetime.fromisoformat(val).replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        pass
+    try:
+        return datetime.strptime(val, "%m/%d/%Y").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
 
 
 def _run_spiders() -> list[dict]:
@@ -88,18 +108,28 @@ def _run_spiders() -> list[dict]:
 
 
 def _fetch_marketcheck_incentives() -> list[dict]:
-    """Fetch OEM incentives from MarketCheck API."""
+    """Fetch OEM incentives from MarketCheck API for all makes and offer types."""
     client = MarketCheckClient()
     all_items: list[dict] = []
+    seen_names: set[str] = set()
 
     for make in MARKETCHECK_MAKES:
-        try:
-            incentives = client.get_oem_incentives(make)
-            for inc in incentives:
-                all_items.append(client.incentive_to_program_dict(inc))
-            logger.info("MarketCheck: %d incentives for %s", len(incentives), make)
-        except Exception as e:
-            logger.error("MarketCheck error for %s: %s", make, e)
+        make_count = 0
+        # Query each offer type separately for full coverage
+        for offer_type in ("cash", "lease", "apr"):
+            try:
+                incentives = client.get_oem_incentives(make, offer_type=offer_type)
+                for inc in incentives:
+                    program = client.incentive_to_program_dict(inc)
+                    # Dedupe across offer types (same name = same program)
+                    if program["name"] not in seen_names:
+                        seen_names.add(program["name"])
+                        all_items.append(program)
+                        make_count += 1
+            except Exception as e:
+                logger.error("MarketCheck error for %s/%s: %s", make, offer_type, e)
+
+        logger.info("MarketCheck: %d incentives for %s", make_count, make)
 
     return all_items
 
@@ -177,6 +207,8 @@ async def _refresh_async() -> dict:
                                 is_active = :is_active,
                                 last_verified = :last_verified,
                                 confidence_score = :confidence_score,
+                                start_date = COALESCE(:start_date, start_date),
+                                end_date = COALESCE(:end_date, end_date),
                                 updated_at = :updated_at
                             WHERE name = :name
                         """),
@@ -189,6 +221,8 @@ async def _refresh_async() -> dict:
                             "is_active": item.get("is_active", True),
                             "last_verified": datetime.now(timezone.utc),
                             "confidence_score": item.get("confidence_score", 0.7),
+                            "start_date": _parse_date(item.get("start_date")),
+                            "end_date": _parse_date(item.get("end_date")),
                             "updated_at": datetime.now(timezone.utc),
                         },
                     )
@@ -211,23 +245,15 @@ async def _refresh_async() -> dict:
 
                 import uuid
                 now = datetime.now(timezone.utc)
-                start_date = item.get("start_date")
-                end_date = item.get("end_date")
-                app_deadline = item.get("application_deadline")
-
-                # Parse date strings if needed
-                if isinstance(start_date, str):
-                    start_date = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
-                if isinstance(end_date, str):
-                    end_date = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
-                if isinstance(app_deadline, str):
-                    app_deadline = datetime.fromisoformat(app_deadline).replace(tzinfo=timezone.utc)
+                start_date = _parse_date(item.get("start_date"))
+                end_date = _parse_date(item.get("end_date"))
+                app_deadline = _parse_date(item.get("application_deadline"))
 
                 await session.execute(
                     text("""
                         INSERT INTO incentive_programs (
                             id, name, type, source_authority, geographic_scope,
-                            eligible_states, eligible_zips,
+                            eligible_states, eligible_zips, eligible_purchase_types,
                             vehicle_criteria, buyer_criteria,
                             incentive_value_type, incentive_amount,
                             incentive_max_amount, incentive_percentage,
@@ -238,7 +264,7 @@ async def _refresh_async() -> dict:
                             is_active, created_at, updated_at
                         ) VALUES (
                             :id, :name, :type, :source_authority, :geographic_scope,
-                            :eligible_states, :eligible_zips,
+                            :eligible_states, :eligible_zips, :eligible_purchase_types,
                             :vehicle_criteria, :buyer_criteria,
                             :incentive_value_type, :incentive_amount,
                             :incentive_max_amount, :incentive_percentage,
@@ -252,6 +278,7 @@ async def _refresh_async() -> dict:
                             incentive_amount = EXCLUDED.incentive_amount,
                             incentive_max_amount = EXCLUDED.incentive_max_amount,
                             incentive_percentage = EXCLUDED.incentive_percentage,
+                            eligible_purchase_types = EXCLUDED.eligible_purchase_types,
                             funding_status = EXCLUDED.funding_status,
                             is_active = EXCLUDED.is_active,
                             last_verified = EXCLUDED.last_verified,
@@ -266,6 +293,7 @@ async def _refresh_async() -> dict:
                         "geographic_scope": item.get("geographic_scope", "national"),
                         "eligible_states": item.get("eligible_states", []),
                         "eligible_zips": item.get("eligible_zips", []),
+                        "eligible_purchase_types": item.get("eligible_purchase_types", ["cash", "finance", "lease"]),
                         "vehicle_criteria": json.dumps(item.get("vehicle_criteria", {})),
                         "buyer_criteria": json.dumps(item.get("buyer_criteria", {})),
                         "incentive_value_type": item.get("incentive_value_type", "fixed"),
@@ -288,6 +316,29 @@ async def _refresh_async() -> dict:
                     },
                 )
                 inserted += 1
+
+        # Mark manufacturer programs not seen in this refresh as inactive
+        all_names = {item.get("name") for item in all_items if item.get("name")}
+        stale_count = 0
+        for name, existing in existing_by_name.items():
+            if (
+                name not in all_names
+                and existing.get("type") == "manufacturer"
+                and existing.get("is_active")
+            ):
+                await session.execute(
+                    text("""
+                        UPDATE incentive_programs
+                        SET is_active = false, updated_at = :now
+                        WHERE name = :name
+                    """),
+                    {"name": name, "now": datetime.now(timezone.utc)},
+                )
+                stale_count += 1
+                alerts.append(f"[STALE] Deactivated: {name}")
+
+        if stale_count:
+            logger.info("Deactivated %d stale manufacturer programs", stale_count)
 
         await session.commit()
 
