@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     api_secret_key: str = "change-me-in-production"
 
     marketcheck_api_key: str = ""
+    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
     trustedform_api_key: str = ""
     sendgrid_api_key: str = ""
     stripe_secret_key: str = ""

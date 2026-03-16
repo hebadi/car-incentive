@@ -425,6 +425,7 @@ class MarketCheckClient:
             "name": inc.name,
             "type": "manufacturer",
             "source_authority": f"{inc.make} (via MarketCheck)",
+            "data_source": "marketcheck",
             "geographic_scope": "national",
             "eligible_states": [],
             "eligible_zips": [],

@@ -317,14 +317,17 @@ async def _refresh_async() -> dict:
                 )
                 inserted += 1
 
-        # Mark manufacturer programs not seen in this refresh as inactive
+        # Mark MarketCheck-sourced programs not seen in this refresh as inactive.
+        # Only deactivate programs originally from MarketCheck — never touch
+        # manually curated seed data or programs from other sources.
         all_names = {item.get("name") for item in all_items if item.get("name")}
         stale_count = 0
         for name, existing in existing_by_name.items():
+            source = existing.get("source_authority", "")
             if (
                 name not in all_names
-                and existing.get("type") == "manufacturer"
                 and existing.get("is_active")
+                and "MarketCheck" in source
             ):
                 await session.execute(
                     text("""
