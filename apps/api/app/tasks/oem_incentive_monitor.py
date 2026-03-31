@@ -43,7 +43,7 @@ OEM_OFFERS_PAGES: dict[str, str] = {
     "Chevrolet": "https://www.chevrolet.com/current-offers",
     "Chrysler": "https://www.chrysler.com/incentives-offers.html",
     "Dodge": "https://www.dodge.com/incentives-offers.html",
-    "Ford": "https://www.ford.com/shopping/deal/",
+    "Ford": "https://www.ford.com/trucks/f150/f150-lightning/",
     "Genesis": "https://www.genesis.com/us/en/genesis-special-offers.html",
     "GMC": "https://www.gmc.com/current-offers",
     "Honda": "https://automobiles.honda.com/tools/current-offers",
@@ -52,10 +52,10 @@ OEM_OFFERS_PAGES: dict[str, str] = {
     "Jeep": "https://www.jeep.com/incentives-offers.html",
     "Kia": "https://www.kia.com/us/en/special-offers",
     "Lexus": "https://www.lexus.com/offers",
-    "Lincoln": "https://www.lincoln.com/shopping/offers-incentives/",
+    "Lincoln": "https://www.lincoln.com/suvs/nautilus/",
     "Mazda": "https://www.mazdausa.com/shopping-tools/offers-and-incentives",
     "Mercedes-Benz": "https://www.mbusa.com/en/special-offers",
-    "Nissan": "https://www.nissanusa.com/shopping-tools/offers-incentives",
+    "Nissan": "https://www.nissanusa.com/shopping-tools/deals-incentives-offers.html",
     "Subaru": "https://www.subaru.com/shopping-tools/current-offers",
     "Toyota": "https://www.toyota.com/deals",
     "Volkswagen": "https://www.vw.com/en/shopping-tools/special-offers",
@@ -94,10 +94,10 @@ OEM_MODEL_PAGES: dict[str, list[str]] = {
         "https://www.chevrolet.com/us/en/trucks/silverado",
     ],
     "Ford": [
-        "https://www.ford.com/trucks/f150/f150-lightning/",
         "https://www.ford.com/suvs-crossovers/mustang-mach-e/",
         "https://www.ford.com/trucks/f150/",
         "https://www.ford.com/suvs/explorer/",
+        "https://www.ford.com/suvs/bronco/",
     ],
     "Honda": [
         "https://www.honda.com/prologue",
@@ -105,9 +105,13 @@ OEM_MODEL_PAGES: dict[str, list[str]] = {
         "https://www.honda.com/civic",
     ],
     "Nissan": [
-        "https://www.nissanusa.com/vehicles/electric-cars/ariya",
-        "https://www.nissanusa.com/vehicles/electric-cars/leaf",
-        "https://www.nissanusa.com/vehicles/crossovers-suvs/rogue",
+        "https://www.nissanusa.com/vehicles/electric-cars/ariya/offers.html",
+        "https://www.nissanusa.com/vehicles/electric-cars/leaf/offers.html",
+        "https://www.nissanusa.com/vehicles/crossovers-suvs/rogue/offers.html",
+    ],
+    "Lincoln": [
+        "https://www.lincoln.com/suvs/aviator/",
+        "https://www.lincoln.com/suvs/navigator/",
     ],
     "Volkswagen": [
         "https://www.vw.com/en/models/id-4",
@@ -150,8 +154,83 @@ Page text content:
 {text}"""
 
 
+def _html_to_text(html: str) -> str:
+    """Strip HTML tags and return clean text."""
+    import re
+    # Remove script/style blocks
+    html = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', ' ', html)
+    # Collapse whitespace
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _fetch_with_curl_cffi(url: str) -> str | None:
+    """Fetch using curl_cffi which spoofs real browser TLS fingerprints (bypasses Akamai)."""
+    try:
+        from curl_cffi import requests as cffi_requests
+        resp = cffi_requests.get(
+            url,
+            impersonate="chrome131",
+            timeout=30,
+            allow_redirects=True,
+        )
+        resp.raise_for_status()
+        text = _html_to_text(resp.text)
+        if len(text) < 200:
+            return None
+        return text
+    except ImportError:
+        logger.warning("curl_cffi not installed — skipping TLS-spoofed fetch for %s", url)
+        return None
+    except Exception as e:
+        logger.error("curl_cffi failed for %s: %s", url, e)
+        return None
+
+
+def _fetch_with_httpx(url: str) -> str | None:
+    """Fallback fetcher using httpx with a realistic user-agent."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    try:
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            resp = client.get(url, headers=headers)
+            resp.raise_for_status()
+            text = _html_to_text(resp.text)
+            if len(text) < 200:
+                return None
+            return text
+    except Exception as e:
+        logger.error("httpx fallback failed for %s: %s", url, e)
+        return None
+
+
+# Sites known to block Playwright and httpx (need TLS fingerprint spoofing)
+_CURL_CFFI_DOMAINS = {"ford.com", "lincoln.com", "honda.com", "automobiles.honda.com"}
+# Sites where httpx works but Playwright doesn't (or returns SPA shells)
+_HTTPX_DOMAINS = {"nissanusa.com", "chevrolet.com", "buick.com", "cadillac.com", "gmc.com"}
+
+
 def _fetch_oem_page(url: str) -> str | None:
-    """Fetch an OEM page using Playwright in a thread (to avoid async conflict)."""
+    """Fetch an OEM page using the best strategy for the domain."""
+    # Sites that need TLS fingerprint spoofing (Akamai-protected)
+    for domain in _CURL_CFFI_DOMAINS:
+        if domain in url:
+            logger.info("Using curl_cffi for Akamai-protected domain: %s", domain)
+            return _fetch_with_curl_cffi(url)
+
+    # Sites where httpx works but Playwright doesn't
+    for domain in _HTTPX_DOMAINS:
+        if domain in url:
+            logger.info("Using httpx for %s", domain)
+            return _fetch_with_httpx(url)
+
     import concurrent.futures
 
     def _run_playwright(target_url: str) -> str | None:
@@ -182,11 +261,22 @@ def _fetch_oem_page(url: str) -> str | None:
     # Run Playwright in a separate thread to avoid asyncio loop conflict
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(_run_playwright, url)
+        result = None
         try:
-            return future.result(timeout=60)
+            result = future.result(timeout=60)
         except concurrent.futures.TimeoutError:
             logger.error("Playwright timed out for %s", url)
-            return None
+
+        # If Playwright failed or returned too little, try fallbacks
+        if not result:
+            logger.info("Trying httpx fallback for %s", url)
+            result = _fetch_with_httpx(url)
+
+        if not result:
+            logger.info("Trying curl_cffi fallback for %s", url)
+            result = _fetch_with_curl_cffi(url)
+
+        return result
 
 
 def _extract_incentives_with_gemini(make: str, page_text: str, url: str = "") -> list[dict]:
@@ -219,25 +309,75 @@ def _extract_incentives_with_gemini(make: str, page_text: str, url: str = "") ->
             data = resp.json()
 
         content = data["candidates"][0]["content"]["parts"][0]["text"]
+        return _parse_gemini_json(content, make)
 
-        # Parse JSON from response — handle markdown code blocks
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1]  # remove ```json
-            content = content.rsplit("```", 1)[0]  # remove trailing ```
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            # Rate limited — wait and retry once
+            logger.warning("Gemini rate limited for %s, waiting 30s and retrying...", make)
+            time.sleep(30)
+            try:
+                with httpx.Client(timeout=120) as client2:
+                    resp2 = client2.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
+                        headers={"content-type": "application/json"},
+                        json={
+                            "contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096},
+                        },
+                    )
+                    resp2.raise_for_status()
+                    content = resp2.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    return _parse_gemini_json(content, make)
+            except Exception as retry_err:
+                logger.error("Gemini retry failed for %s: %s", make, retry_err)
+                return []
+        else:
+            logger.error("Gemini API error for %s: %s", make, e)
+            return []
+    except Exception as e:
+        logger.error("Gemini API error for %s: %s", make, e)
+        return []
 
+
+def _parse_gemini_json(content: str, make: str) -> list[dict]:
+    """Parse JSON from Gemini response, handling common malformations."""
+    import re
+
+    content = content.strip()
+
+    # Remove markdown code blocks
+    if content.startswith("```"):
+        content = content.split("\n", 1)[1]  # remove ```json
+        content = content.rsplit("```", 1)[0]  # remove trailing ```
+
+    # Remove trailing commas before } or ] (common Gemini issue)
+    content = re.sub(r',\s*([}\]])', r'\1', content)
+
+    # If response was truncated mid-object, try to salvage by closing arrays
+    if not content.rstrip().endswith(']'):
+        # Try to find the last complete object and close the array
+        last_brace = content.rfind('}')
+        if last_brace > 0:
+            content = content[:last_brace + 1] + ']'
+
+    try:
         incentives = json.loads(content)
         if not isinstance(incentives, list):
             logger.warning("Gemini returned non-list for %s", make)
             return []
-
         return incentives
-
     except json.JSONDecodeError as e:
         logger.error("Failed to parse Gemini response for %s: %s", make, e)
-        return []
-    except Exception as e:
-        logger.error("Gemini API error for %s: %s", make, e)
+        # Last resort: try to extract individual JSON objects
+        try:
+            objects = re.findall(r'\{[^{}]*\}', content)
+            if objects:
+                incentives = [json.loads(obj) for obj in objects]
+                logger.info("Recovered %d incentives from malformed JSON for %s", len(incentives), make)
+                return incentives
+        except Exception:
+            pass
         return []
 
 
@@ -304,13 +444,19 @@ def _parse_date(val: str | None) -> datetime | None:
         return None
 
 
-def monitor_oem_incentives() -> dict:
-    """Fetch OEM offers pages, extract incentives via Claude, and upsert to DB."""
+def monitor_oem_incentives(batch: str | None = None) -> dict:
+    """Fetch OEM offers pages, extract incentives via Gemini, and upsert to DB.
+
+    Args:
+        batch: Optional batch selector to split across multiple cron runs.
+               "a" = first half of OEMs (Acura-Honda), "b" = second half (Hyundai-Volvo).
+               None = run all (may hit Gemini free tier rate limits).
+    """
     import asyncio
-    return asyncio.run(_monitor_async())
+    return asyncio.run(_monitor_async(batch=batch))
 
 
-async def _monitor_async() -> dict:
+async def _monitor_async(batch: str | None = None) -> dict:
     """Core async monitor logic."""
     engine = create_async_engine(DATABASE_URL, echo=False)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -321,7 +467,18 @@ async def _monitor_async() -> dict:
 
     seen_names: set[str] = set()
 
-    for make, url in OEM_OFFERS_PAGES.items():
+    # Split OEMs into batches to stay within Gemini free tier limits
+    oem_list = list(OEM_OFFERS_PAGES.items())
+    if batch == "a":
+        midpoint = len(oem_list) // 2
+        oem_list = oem_list[:midpoint]
+        logger.info("Running batch A: %d makes (%s to %s)", len(oem_list), oem_list[0][0], oem_list[-1][0])
+    elif batch == "b":
+        midpoint = len(oem_list) // 2
+        oem_list = oem_list[midpoint:]
+        logger.info("Running batch B: %d makes (%s to %s)", len(oem_list), oem_list[0][0], oem_list[-1][0])
+
+    for make, url in oem_list:
         # Collect all pages to check for this make
         pages_to_check = [(url, "offers")]
         for model_url in OEM_MODEL_PAGES.get(make, []):
@@ -346,8 +503,8 @@ async def _monitor_async() -> dict:
 
             logger.info("Extracting incentives for %s from %s (%d chars)", make, page_type, len(page_text))
 
-            # Rate limit: Gemini free tier is 10 RPM — space calls 8s apart
-            time.sleep(8)
+            # Rate limit: Gemini free tier is 10 RPM — space calls 12s apart for safety
+            time.sleep(12)
 
             raw_incentives = _extract_incentives_with_gemini(make, page_text, url=page_url)
 
@@ -566,6 +723,9 @@ except ImportError:
 
 
 if __name__ == "__main__":
+    import sys
     logging.basicConfig(level=logging.INFO)
-    result = monitor_oem_incentives()
+    # Usage: python -m app.tasks.oem_incentive_monitor [a|b]
+    batch_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    result = monitor_oem_incentives(batch=batch_arg)
     print(json.dumps(result, indent=2))
