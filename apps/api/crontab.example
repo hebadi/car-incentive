@@ -1,0 +1,37 @@
+# IncentiveDrive — Daily Incentive Refresh Cron Jobs
+#
+# Setup instructions:
+#   1. Copy this file or install entries into your crontab:
+#        crontab -e
+#   2. Replace /path/to/car-incentive with the actual project root.
+#   3. Ensure python3 points to the correct virtualenv or use the full
+#      path to the venv Python binary (e.g., /path/to/venv/bin/python3).
+#   4. Create the log directory if it does not exist:
+#        sudo mkdir -p /var/log && sudo touch /var/log/incentive-refresh.log /var/log/oem-monitor.log
+#   5. Make sure the cron user has write access to the log files.
+#
+# ---------------------------------------------------------------------------
+# Job 1: MarketCheck incentive data refresh
+#
+# Pulls the latest vehicle pricing and inventory data from the MarketCheck
+# API and refreshes the local incentive cache. Runs once daily at 5:00 AM
+# UTC, before the OEM monitor jobs, so downstream tasks operate on fresh
+# baseline data.
+# ---------------------------------------------------------------------------
+0 5 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.refresh_incentives >> /var/log/incentive-refresh.log 2>&1
+
+# ---------------------------------------------------------------------------
+# Jobs 2 & 3: OEM Incentive Monitor (split into two batches)
+#
+# The OEM monitor scrapes official manufacturer incentive pages using
+# Google Gemini for extraction. The work is split into two batches to
+# stay within the Gemini free-tier rate limits:
+#
+#   Batch A (6:00 AM UTC) — Acura through Honda
+#   Batch B (6:30 AM UTC) — Hyundai through Volvo
+#
+# The 30-minute gap between batches lets the Gemini rate-limit window
+# reset, avoiding 429 errors that would cause missed updates.
+# ---------------------------------------------------------------------------
+0 6 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.oem_incentive_monitor a >> /var/log/oem-monitor.log 2>&1
+30 6 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.oem_incentive_monitor b >> /var/log/oem-monitor.log 2>&1

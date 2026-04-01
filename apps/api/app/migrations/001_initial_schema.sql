@@ -12,6 +12,7 @@ CREATE TYPE lead_tier_enum AS ENUM ('hot', 'warm', 'nurture', 'unqualified');
 CREATE TYPE delivery_method_enum AS ENUM ('adf_email', 'crm_api', 'email_plain');
 CREATE TYPE delivery_status_enum AS ENUM ('pending', 'sent', 'delivered', 'failed', 'bounced');
 CREATE TYPE dealer_subscription_tier_enum AS ENUM ('starter', 'growth', 'enterprise');
+CREATE TYPE lead_status_enum AS ENUM ('new', 'contacted', 'converted', 'nurture', 'bad_lead');
 CREATE TYPE consent_method_enum AS ENUM ('web_form', 'api');
 
 -- Incentive Programs
@@ -105,6 +106,7 @@ CREATE TABLE leads (
     matched_incentive_ids UUID[] DEFAULT '{}',
     total_savings_estimate NUMERIC(12, 2) NOT NULL DEFAULT 0,
     source VARCHAR(100) NOT NULL DEFAULT 'web',
+    status lead_status_enum NOT NULL DEFAULT 'new',
     source_ip VARCHAR(45),
     user_agent VARCHAR(500),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -121,7 +123,7 @@ CREATE INDEX ix_leads_email ON leads (email);
 CREATE TABLE consent_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lead_id UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
-    dealer_id UUID NOT NULL REFERENCES dealers(id) ON DELETE CASCADE,
+    dealer_id UUID REFERENCES dealers(id) ON DELETE CASCADE,
     consent_timestamp TIMESTAMPTZ NOT NULL,
     consent_ip VARCHAR(45) NOT NULL,
     consent_user_agent VARCHAR(500) NOT NULL,

@@ -196,10 +196,10 @@ def test_stacking_mutual_exclusion_picks_higher():
     id_a = uuid.uuid4()
     id_b = uuid.uuid4()
     a = _make_incentive(id=id_a, name="Cash Rebate", incentive_amount=3000, mutually_exclusive_with=[id_b])
-    b = _make_incentive(id=id_b, name="0% APR", incentive_value_type="rate_reduction", incentive_amount=0, incentive_percentage=5.0, mutually_exclusive_with=[id_a])
+    # 0% APR offered rate → savings = 6.5% - 0% = 6.5% on $35k over 5y/2 = $5687.50 > $3000
+    b = _make_incentive(id=id_b, name="0% APR", incentive_value_type="rate_reduction", incentive_amount=0, incentive_percentage=0.0, mutually_exclusive_with=[id_a])
     result = resolve_stacking([a, b])
     assert len(result) == 1
-    # rate_reduction on $35k at 5% for 5y/2 = $4375, which is > $3000
     assert result[0].name == "0% APR"
 
 
@@ -243,10 +243,10 @@ def test_compute_value_percentage():
 def test_compute_value_rate_reduction():
     inc = _make_incentive(
         incentive_value_type="rate_reduction",
-        incentive_percentage=5.0,
+        incentive_percentage=1.9,
     )
-    # 5% on $35000 over 5y/2 = $4375
-    assert compute_value(inc, {}) == pytest.approx(4375.0)
+    # Offered 1.9% APR vs 6.5% market → savings = 4.6% on $35k over 5y/2 = $4025
+    assert compute_value(inc, {}) == pytest.approx(4025.0)
 
 
 # --- generate_disclaimers ---

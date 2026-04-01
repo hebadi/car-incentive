@@ -42,6 +42,13 @@ class Lead(Base):
     matched_incentive_ids: Mapped[List[str]] = mapped_column(ARRAY(UUID(as_uuid=True)), default=list)
     total_savings_estimate: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
 
+    # Lead status
+    status: Mapped[str] = mapped_column(
+        PgEnum("new", "contacted", "converted", "nurture", "bad_lead", name="lead_status_enum", create_type=False),
+        nullable=False,
+        default="new",
+    )
+
     # Tracking
     source: Mapped[str] = mapped_column(String(100), nullable=False, default="web")
     source_ip: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)

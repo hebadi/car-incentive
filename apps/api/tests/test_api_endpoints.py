@@ -4,11 +4,28 @@ These tests use TestClient (sync) and don't require a running database.
 They verify routing, validation, and response shapes.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 client = TestClient(app)
+
+_DB_SKIP_EXCEPTIONS = (OSError, ConnectionError)
+_DB_SKIP_REASON = "PostgreSQL not available"
+
+
+def _skip_if_db_error(func):
+    """Decorator: skip the test if the request fails due to DB unavailability."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except _DB_SKIP_EXCEPTIONS as exc:
+            if "Connect call failed" in str(exc) or "connection" in str(exc).lower():
+                pytest.skip(_DB_SKIP_REASON)
+            raise
+    wrapper.__name__ = func.__name__
+    return wrapper
 
 
 def test_health():
@@ -18,6 +35,7 @@ def test_health():
     assert data["status"] == "ok"
 
 
+@_skip_if_db_error
 def test_calculate_incentives_valid_request():
     payload = {
         "zip_code": "90210",
@@ -33,9 +51,7 @@ def test_calculate_incentives_valid_request():
         },
     }
     response = client.post("/api/v1/incentives/calculate", json=payload)
-    # Will return 200 even without DB (returns empty due to no connection or empty results)
-    # In test environment without DB, we expect 500 (DB not available) or 200
-    assert response.status_code in (200, 500)
+    assert response.status_code == 200
 
 
 def test_calculate_incentives_invalid_zip():
@@ -57,6 +73,7 @@ def test_calculate_incentives_missing_zip():
     assert response.status_code == 422
 
 
+@_skip_if_db_error
 def test_submit_lead_valid_request():
     payload = {
         "first_name": "Jane",
@@ -68,8 +85,7 @@ def test_submit_lead_valid_request():
         "consent_text": "I consent to be contacted by dealerships regarding vehicle purchases.",
     }
     response = client.post("/api/v1/leads", json=payload)
-    # Without DB, expect 500 or 200
-    assert response.status_code in (200, 500)
+    assert response.status_code == 200
 
 
 def test_submit_lead_missing_consent():
@@ -95,10 +111,10 @@ def test_submit_lead_invalid_zip():
     assert response.status_code == 422
 
 
+@_skip_if_db_error
 def test_list_incentives_by_state_valid():
     response = client.get("/api/v1/incentives/CA")
-    # Without DB, expect 500 or 200
-    assert response.status_code in (200, 500)
+    assert response.status_code == 200
 
 
 def test_list_incentives_by_state_invalid():
@@ -106,10 +122,10 @@ def test_list_incentives_by_state_invalid():
     assert response.status_code == 422  # Must be 2-letter code
 
 
+@_skip_if_db_error
 def test_find_dealers_by_zip():
     response = client.get("/api/v1/dealers/90210")
-    # Without DB, expect 500 or 200
-    assert response.status_code in (200, 500)
+    assert response.status_code == 200
 
 
 def test_find_dealers_invalid_zip():
