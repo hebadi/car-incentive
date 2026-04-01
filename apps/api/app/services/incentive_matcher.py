@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.incentive_program import IncentiveProgram
@@ -537,10 +537,12 @@ async def match_incentives(
     # Sources that are generic/unreliable and should not be shown to users
     BLOCKED_SOURCES = {"https://www.marketcheck.com", "https://www.marketcheck.com/"}
 
-    # Load all active incentives from the DB
+    # Load all active, non-expired incentives from the DB
+    now = datetime.now(timezone.utc)
     stmt = select(IncentiveProgram).where(
         IncentiveProgram.is_active.is_(True),
         IncentiveProgram.funding_status.in_(["open", "waitlisted"]),
+        or_(IncentiveProgram.end_date.is_(None), IncentiveProgram.end_date > now),
     )
     result = await db.execute(stmt)
     all_incentives = [

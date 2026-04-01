@@ -258,10 +258,13 @@ export default function ResultsPage() {
     );
   }
 
-  // Filter out incentives with unreliable/generic sources
+  // Filter out incentives with unreliable/generic sources and expired programs
   const BLOCKED_SOURCES = ["https://www.marketcheck.com", "https://www.marketcheck.com/"];
+  const now = new Date();
   const filteredIncentives = results.incentives.filter(
-    (inc) => !inc.sourceUrl || !BLOCKED_SOURCES.includes(inc.sourceUrl)
+    (inc) =>
+      (!inc.sourceUrl || !BLOCKED_SOURCES.includes(inc.sourceUrl)) &&
+      (!inc.endDate || new Date(inc.endDate) > now)
   );
 
   // Group by purchase type

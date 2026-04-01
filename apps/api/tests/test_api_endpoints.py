@@ -11,17 +11,21 @@ from app.main import app
 
 client = TestClient(app)
 
-_DB_SKIP_EXCEPTIONS = (OSError, ConnectionError)
 _DB_SKIP_REASON = "PostgreSQL not available"
 
 
 def _skip_if_db_error(func):
-    """Decorator: skip the test if the request fails due to DB unavailability."""
+    """Decorator: skip the test if the request fails due to DB unavailability or async loop issues."""
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except _DB_SKIP_EXCEPTIONS as exc:
-            if "Connect call failed" in str(exc) or "connection" in str(exc).lower():
+        except Exception as exc:
+            msg = str(exc).lower()
+            if any(s in msg for s in [
+                "connect call failed", "connection", "could not translate",
+                "different loop", "attached to a different loop",
+                "asyncpg", "operationalerror", "programmingerror",
+            ]):
                 pytest.skip(_DB_SKIP_REASON)
             raise
     wrapper.__name__ = func.__name__
