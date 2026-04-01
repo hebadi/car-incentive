@@ -35,21 +35,21 @@ DATABASE_URL = os.environ.get("DATABASE_URL", settings.database_url)
 # Each OEM's public-facing offers/specials page.
 # We fetch the HTML content and use Claude to extract incentive data.
 OEM_OFFERS_PAGES: dict[str, str] = {
-    "Acura": "https://www.acura.com/special-offers",
+    "Acura": "https://www.acura.com/integra",  # model pages have offers; main offers page is SPA
     "Audi": "https://www.audiusa.com/us/web/en/shopping-tools/special-offers.html",
-    "BMW": "https://www.bmwusa.com/byo/build-your-own.html#/offers",
+    "BMW": "https://www.bmwusa.com/",  # heavy SPA — only homepage renders; rely on MarketCheck for BMW
     "Buick": "https://www.buick.com/current-offers",
     "Cadillac": "https://www.cadillac.com/current-offers",
     "Chevrolet": "https://www.chevrolet.com/current-offers",
-    "Chrysler": "https://www.chrysler.com/incentives-offers.html",
-    "Dodge": "https://www.dodge.com/incentives-offers.html",
+    "Chrysler": "https://www.chrysler.com/pacifica.html",  # model pages work; offers page is SPA
+    "Dodge": "https://www.dodge.com/charger.html",
     "Ford": "https://www.ford.com/trucks/f150/f150-lightning/",
     "Genesis": "https://www.genesis.com/us/en/genesis-special-offers.html",
     "GMC": "https://www.gmc.com/current-offers",
-    "Honda": "https://automobiles.honda.com/tools/current-offers",
+    "Honda": "https://www.honda.com/prologue",  # curl_cffi works on model pages
     "Hyundai": "https://www.hyundaiusa.com/us/en/deals-and-specials",
     "Infiniti": "https://www.infinitiusa.com/shopping-tools/offers-incentives",
-    "Jeep": "https://www.jeep.com/incentives-offers.html",
+    "Jeep": "https://www.jeep.com/wrangler.html",  # model pages work; offers page is SPA
     "Kia": "https://www.kia.com/us/en/special-offers",
     "Lexus": "https://www.lexus.com/offers",
     "Lincoln": "https://www.lincoln.com/suvs/nautilus/",
@@ -59,7 +59,7 @@ OEM_OFFERS_PAGES: dict[str, str] = {
     "Subaru": "https://www.subaru.com/shopping-tools/current-offers",
     "Toyota": "https://www.toyota.com/deals",
     "Volkswagen": "https://www.vw.com/en/shopping-tools/special-offers",
-    "Volvo": "https://www.volvocars.com/us/shopping/offers/",
+    "Volvo": "https://www.volvocars.com/us/cars/xc90/",  # model pages have offers; main offers page blocked
 }
 
 # Model-specific pages where incentives appear (SPAs hide offers on landing pages).
@@ -112,6 +112,28 @@ OEM_MODEL_PAGES: dict[str, list[str]] = {
     "Lincoln": [
         "https://www.lincoln.com/suvs/aviator/",
         "https://www.lincoln.com/suvs/navigator/",
+    ],
+    "Acura": [
+        "https://www.acura.com/mdx",
+        "https://www.acura.com/rdx",
+        "https://www.acura.com/tlx",
+    ],
+    "Chrysler": [
+        "https://www.chrysler.com/pacifica-hybrid.html",
+    ],
+    "Dodge": [
+        "https://www.dodge.com/hornet.html",
+        "https://www.dodge.com/durango.html",
+    ],
+    "Jeep": [
+        "https://www.jeep.com/grand-cherokee.html",
+        "https://www.jeep.com/grand-cherokee-4xe.html",
+        "https://www.jeep.com/wagoneer.html",
+    ],
+    "Volvo": [
+        "https://www.volvocars.com/us/cars/ex30-electric/",
+        "https://www.volvocars.com/us/cars/ex40-electric/",
+        "https://www.volvocars.com/us/cars/xc60/",
     ],
     "Volkswagen": [
         "https://www.vw.com/en/models/id-4",
@@ -212,7 +234,13 @@ def _fetch_with_httpx(url: str) -> str | None:
 
 
 # Sites known to block Playwright and httpx (need TLS fingerprint spoofing)
-_CURL_CFFI_DOMAINS = {"ford.com", "lincoln.com", "honda.com", "automobiles.honda.com"}
+_CURL_CFFI_DOMAINS = {
+    "ford.com", "lincoln.com", "honda.com", "automobiles.honda.com",
+    "acura.com",  # 403 with httpx
+    "chrysler.com", "dodge.com", "jeep.com",  # Stellantis SPA — model pages work with curl_cffi
+    "bmwusa.com",  # heavy SPA, only homepage renders
+    "volvocars.com",  # 403 with httpx
+}
 # Sites where httpx works but Playwright doesn't (or returns SPA shells)
 _HTTPX_DOMAINS = {"nissanusa.com", "chevrolet.com", "buick.com", "cadillac.com", "gmc.com"}
 
