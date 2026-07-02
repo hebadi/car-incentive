@@ -35,3 +35,6 @@ coverage/
 
 # Build artifacts
 *.egg-info/
+
+# Dev server logs (scripts/dev.sh)
+.dev-logs/
