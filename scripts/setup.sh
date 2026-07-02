@@ -10,6 +10,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT_DIR"
 
+check_cmd() {
+  if ! command -v "$1" &>/dev/null; then
+    echo "Error: '$1' is not installed (or not on your PATH)."
+    echo "$2"
+    echo "Install it, restart your terminal, then re-run ./scripts/setup.sh"
+    exit 1
+  fi
+}
+
+check_cmd docker "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
+check_cmd node "Install Node.js 20+: https://nodejs.org/"
+check_cmd npm "npm ships with Node.js — install Node.js 20+: https://nodejs.org/"
+check_cmd python3 "Install Python 3.9+: https://www.python.org/downloads/"
+
 echo "=== 1/6: Starting Postgres + Redis ==="
 docker compose up -d
 
