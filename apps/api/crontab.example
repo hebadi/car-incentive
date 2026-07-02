@@ -21,17 +21,29 @@
 0 5 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.refresh_incentives >> /var/log/incentive-refresh.log 2>&1
 
 # ---------------------------------------------------------------------------
-# Jobs 2 & 3: OEM Incentive Monitor (split into two batches)
+# Jobs 2-4: OEM Incentive Monitor (split into three batches)
 #
 # The OEM monitor scrapes official manufacturer incentive pages using
-# Google Gemini for extraction. The work is split into two batches to
-# stay within the Gemini free-tier rate limits:
+# Google Gemini for extraction. The work is split into three batches to
+# stay within the Gemini free-tier rate limits (10 RPM):
 #
-#   Batch A (6:00 AM UTC) — Acura through Honda
-#   Batch B (6:30 AM UTC) — Hyundai through Volvo
+#   Batch A (6:00 AM UTC) — Acura through Genesis    (~9 OEMs)
+#   Batch B (6:30 AM UTC) — GMC through Mazda         (~9 OEMs)
+#   Batch C (7:00 AM UTC) — Mercedes-Benz through Volvo (~10 OEMs)
 #
 # The 30-minute gap between batches lets the Gemini rate-limit window
 # reset, avoiding 429 errors that would cause missed updates.
 # ---------------------------------------------------------------------------
 0 6 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.oem_incentive_monitor a >> /var/log/oem-monitor.log 2>&1
 30 6 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.oem_incentive_monitor b >> /var/log/oem-monitor.log 2>&1
+0 7 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.oem_incentive_monitor c >> /var/log/oem-monitor.log 2>&1
+
+# ---------------------------------------------------------------------------
+# Job 4: Vehicle Catalog Sync
+#
+# Pulls current make/model/year data from MarketCheck vehicle listings and
+# updates the vehicle_catalog table. This ensures the calculator form always
+# shows the latest available models (e.g., new model launches). Runs daily
+# at 4:30 AM UTC, before the incentive refresh jobs.
+# ---------------------------------------------------------------------------
+30 4 * * * cd /path/to/car-incentive/apps/api && python3 -m app.tasks.sync_vehicle_catalog >> /var/log/vehicle-catalog.log 2>&1
