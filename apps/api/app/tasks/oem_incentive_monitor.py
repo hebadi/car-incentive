@@ -53,10 +53,14 @@ OEM_OFFERS_PAGES: dict[str, str] = {
     "Kia": "https://www.kia.com/us/en/special-offers",
     "Lexus": "https://www.lexus.com/offers",
     "Lincoln": "https://www.lincoln.com/suvs/nautilus/",
+    "Lucid": "https://www.lucidmotors.com/offers",
     "Mazda": "https://www.mazdausa.com/shopping-tools/offers-and-incentives",
     "Mercedes-Benz": "https://www.mbusa.com/en/special-offers",
     "Nissan": "https://www.nissanusa.com/shopping-tools/deals-incentives-offers.html",
+    "Polestar": "https://www.polestar.com/us/offers/new/",
+    "Rivian": "https://rivian.com/configurations",
     "Subaru": "https://www.subaru.com/shopping-tools/current-offers",
+    "Tesla": "https://www.tesla.com/inventory/new/my",
     "Toyota": "https://www.toyota.com/deals",
     "Volkswagen": "https://www.vw.com/en/shopping-tools/special-offers",
     "Volvo": "https://www.volvocars.com/us/cars/xc90/",  # model pages have offers; main offers page blocked
@@ -81,11 +85,13 @@ OEM_MODEL_PAGES: dict[str, list[str]] = {
         "https://www.kia.com/us/en/telluride",
     ],
     "Toyota": [
-        "https://www.toyota.com/bz4x",
+        "https://www.toyota.com/bz",
+        "https://www.toyota.com/c-hr",
         "https://www.toyota.com/rav4prime",
         "https://www.toyota.com/camry",
         "https://www.toyota.com/tacoma",
         "https://www.toyota.com/highlander",
+        "https://www.toyota.com/4runner",
     ],
     "Chevrolet": [
         "https://www.chevrolet.com/us/en/electric/equinox-ev",
@@ -103,6 +109,8 @@ OEM_MODEL_PAGES: dict[str, list[str]] = {
         "https://www.honda.com/prologue",
         "https://www.honda.com/cr-v",
         "https://www.honda.com/civic",
+        "https://www.honda.com/accord",
+        "https://www.honda.com/hr-v",
     ],
     "Nissan": [
         "https://www.nissanusa.com/vehicles/electric-cars/ariya/offers.html",
@@ -139,6 +147,41 @@ OEM_MODEL_PAGES: dict[str, list[str]] = {
         "https://www.vw.com/en/models/id-4",
         "https://www.vw.com/en/models/id-buzz",
         "https://www.vw.com/en/models/atlas",
+    ],
+    "Polestar": [
+        "https://www.polestar.com/us/offers/new/?model=Polestar+2",
+        "https://www.polestar.com/us/offers/new/?model=Polestar+3",
+        "https://www.polestar.com/us/offers/new/?model=Polestar+4",
+    ],
+    "Lucid": [
+        "https://www.lucidmotors.com/air",
+        "https://www.lucidmotors.com/gravity",
+    ],
+    "Rivian": [
+        "https://rivian.com/r1s",
+        "https://rivian.com/r1t",
+        "https://rivian.com/r2",
+    ],
+    "Genesis": [
+        "https://www.genesis.com/us/en/models/gv60.html",
+        "https://www.genesis.com/us/en/models/electrified-g80.html",
+        "https://www.genesis.com/us/en/models/electrified-gv70.html",
+    ],
+    "Subaru": [
+        "https://www.subaru.com/vehicles/solterra",
+        "https://www.subaru.com/vehicles/crosstrek",
+        "https://www.subaru.com/vehicles/outback",
+        "https://www.subaru.com/vehicles/forester",
+    ],
+    "Mazda": [
+        "https://www.mazdausa.com/vehicles/cx-90",
+        "https://www.mazdausa.com/vehicles/cx-70",
+    ],
+    "Mercedes-Benz": [
+        "https://www.mbusa.com/en/vehicles/class/eqs/sedan",
+        "https://www.mbusa.com/en/vehicles/class/eqe/sedan",
+        "https://www.mbusa.com/en/vehicles/class/eqe/suv",
+        "https://www.mbusa.com/en/vehicles/class/eqs/suv",
     ],
 }
 
@@ -477,7 +520,9 @@ def monitor_oem_incentives(batch: str | None = None) -> dict:
 
     Args:
         batch: Optional batch selector to split across multiple cron runs.
-               "a" = first half of OEMs (Acura-Honda), "b" = second half (Hyundai-Volvo).
+               "a" = first third of OEMs (Acura-Genesis)
+               "b" = second third (GMC-Mazda)
+               "c" = final third (Mercedes-Benz-Volvo)
                None = run all (may hit Gemini free tier rate limits).
     """
     import asyncio
@@ -495,16 +540,18 @@ async def _monitor_async(batch: str | None = None) -> dict:
 
     seen_names: set[str] = set()
 
-    # Split OEMs into batches to stay within Gemini free tier limits
+    # Split OEMs into 3 batches to stay within Gemini free tier (10 RPM)
     oem_list = list(OEM_OFFERS_PAGES.items())
+    third = len(oem_list) // 3
     if batch == "a":
-        midpoint = len(oem_list) // 2
-        oem_list = oem_list[:midpoint]
+        oem_list = oem_list[:third]
         logger.info("Running batch A: %d makes (%s to %s)", len(oem_list), oem_list[0][0], oem_list[-1][0])
     elif batch == "b":
-        midpoint = len(oem_list) // 2
-        oem_list = oem_list[midpoint:]
+        oem_list = oem_list[third:2 * third]
         logger.info("Running batch B: %d makes (%s to %s)", len(oem_list), oem_list[0][0], oem_list[-1][0])
+    elif batch == "c":
+        oem_list = oem_list[2 * third:]
+        logger.info("Running batch C: %d makes (%s to %s)", len(oem_list), oem_list[0][0], oem_list[-1][0])
 
     for make, url in oem_list:
         # Collect all pages to check for this make
@@ -753,7 +800,7 @@ except ImportError:
 if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO)
-    # Usage: python -m app.tasks.oem_incentive_monitor [a|b]
+    # Usage: python -m app.tasks.oem_incentive_monitor [a|b|c]
     batch_arg = sys.argv[1] if len(sys.argv) > 1 else None
     result = monitor_oem_incentives(batch=batch_arg)
     print(json.dumps(result, indent=2))
