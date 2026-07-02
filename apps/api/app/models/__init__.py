@@ -4,6 +4,7 @@ from app.models.dealer import Dealer
 from app.models.consent_record import ConsentRecord
 from app.models.lead_delivery import LeadDelivery
 from app.models.lead_dealer_match import LeadDealerMatch
+from app.models.vehicle_catalog import VehicleCatalog
 
 __all__ = [
     "IncentiveProgram",
@@ -12,4 +13,5 @@ __all__ = [
     "ConsentRecord",
     "LeadDelivery",
     "LeadDealerMatch",
+    "VehicleCatalog",
 ]

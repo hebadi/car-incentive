@@ -86,6 +86,37 @@ export function getTopIncentivesByZip(
   return apiFetch(`/incentives/top-by-zip?zip_code=${zipCode}`);
 }
 
+// ---- Vehicle catalog (dynamic makes/models) ----
+
+export interface VehicleModelInfo2 {
+  name: string;
+  fuelTypes: string[];
+}
+
+export interface VehicleMakesResponse {
+  makes: string[];
+  source: string;
+}
+
+export interface VehicleModelsResponse {
+  make: string;
+  models: VehicleModelInfo2[];
+  source: string;
+}
+
+export function getVehicleMakes(): Promise<VehicleMakesResponse> {
+  return apiFetch("/vehicles/makes");
+}
+
+export function getVehicleModels(
+  make: string,
+  fuelType?: string
+): Promise<VehicleModelsResponse> {
+  const params = new URLSearchParams({ make });
+  if (fuelType) params.set("fuel_type", fuelType);
+  return apiFetch(`/vehicles/models?${params.toString()}`);
+}
+
 export interface VehiclePhotoResponse {
   photoUrl: string | null;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import ProgressBar from "@/components/ProgressBar";
@@ -13,7 +13,7 @@ import {
   AFFINITY_OPTIONS,
   type FuelTypeKey,
 } from "@/lib/constants";
-import { calculateIncentives } from "@/lib/api";
+import { calculateIncentives, getVehicleMakes, getVehicleModels, type VehicleModelInfo2 } from "@/lib/api";
 import type { FuelType, NewOrUsed, AffinityGroup } from "@incentive-drive/shared";
 
 interface CalculatorFormData {
@@ -84,6 +84,31 @@ export default function CalculatorPage() {
   const selectedModel = watch("model");
   const selectedFuelType = watch("fuelType");
   const budgetMax = watch("budgetMax");
+
+  // Dynamic vehicle catalog from API (with fallback to constants)
+  const [dynamicMakes, setDynamicMakes] = useState<string[] | null>(null);
+  const [dynamicModels, setDynamicModels] = useState<VehicleModelInfo2[] | null>(null);
+
+  useEffect(() => {
+    getVehicleMakes()
+      .then((res) => setDynamicMakes(res.makes))
+      .catch(() => setDynamicMakes(null));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedMake) {
+      setDynamicModels(null);
+      return;
+    }
+    getVehicleModels(selectedMake)
+      .then((res) => setDynamicModels(res.models))
+      .catch(() => setDynamicModels(null));
+  }, [selectedMake]);
+
+  const effectiveMakes = dynamicMakes ?? [...VEHICLE_MAKES];
+  const effectiveModels: { name: string; fuelTypes: string[] }[] =
+    dynamicModels ??
+    (selectedMake ? VEHICLE_MODELS[selectedMake as keyof typeof VEHICLE_MODELS] ?? [] : []);
 
   async function goNext() {
     const fieldsToValidate: (keyof CalculatorFormData)[][] = [
@@ -285,7 +310,7 @@ export default function CalculatorPage() {
                   className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-3 shadow-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 >
                   <option value="">Any / Not sure</option>
-                  {VEHICLE_MAKES.map((make) => (
+                  {effectiveMakes.map((make) => (
                     <option key={make} value={make}>
                       {make}
                     </option>
@@ -307,8 +332,8 @@ export default function CalculatorPage() {
                   className="mt-1 block w-full rounded-xl border border-gray-300 px-4 py-3 shadow-sm transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-gray-100 disabled:text-gray-400"
                 >
                   <option value="">{selectedMake ? "Select model" : "Select a make first"}</option>
-                  {selectedMake && VEHICLE_MODELS[selectedMake]?.map((m) => {
-                    const matchesFuelType = !selectedFuelType || m.fuelTypes.includes(selectedFuelType as FuelTypeKey);
+                  {selectedMake && effectiveModels.map((m) => {
+                    const matchesFuelType = !selectedFuelType || m.fuelTypes.includes(selectedFuelType as FuelTypeKey | string);
                     return (
                       <option
                         key={m.name}
