@@ -10,6 +10,7 @@ import {
   type PurchaseTypeBreakdown,
   type ClaimStep,
 } from "@/lib/api";
+import { getExpirationInfo } from "@/lib/expiration";
 
 const TYPE_COLORS: Record<string, string> = {
   state: "text-green-700 bg-green-50",
@@ -46,27 +47,6 @@ const PURCHASE_TYPE_ICONS: Record<string, JSX.Element> = {
 function formatVerifiedDate(iso: string): string {
   const d = new Date(iso);
   return `Verified ${d.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
-}
-
-function getExpirationInfo(endDateIso: string): { label: string; color: string } {
-  const now = new Date();
-  const end = new Date(endDateIso);
-  const diffMs = end.getTime() - now.getTime();
-  const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-  if (daysLeft < 0) {
-    return { label: "Expired", color: "text-red-400 bg-red-400/10" };
-  }
-  if (daysLeft < 7) {
-    return { label: `Expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}!`, color: "text-red-400 bg-red-400/10 font-semibold" };
-  }
-  if (daysLeft <= 30) {
-    return { label: `Expires in ${daysLeft} days`, color: "text-yellow-400 bg-yellow-400/10" };
-  }
-  return {
-    label: `Expires ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
-    color: "text-green-400 bg-green-400/10",
-  };
 }
 
 function buildLogoUrl(make: string): string {
@@ -117,7 +97,7 @@ function ClaimStepsDark({ steps }: { steps: ClaimStep[] }) {
 
 function IncentiveRow({ inc }: { inc: IncentiveDetail }) {
   const [showClaim, setShowClaim] = useState(false);
-  const expiration = inc.endDate ? getExpirationInfo(inc.endDate) : null;
+  const expiration = inc.endDate ? getExpirationInfo(inc.endDate, "dark") : null;
   const hasClaimSteps = inc.claimSteps && inc.claimSteps.length > 0;
 
   // Safety net: don't render expired incentives that slipped through

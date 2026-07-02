@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import LeadCaptureModal from "@/components/LeadCaptureModal";
 import CarImage from "@/components/CarImage";
+import { getExpirationInfo } from "@/lib/expiration";
 
 interface ClaimStepData {
   step: number;
@@ -200,27 +201,6 @@ function IncentiveItem({ inc }: { inc: IncentiveSummary }) {
 function formatVerifiedDate(iso: string): string {
   const d = new Date(iso);
   return `Verified ${d.toLocaleDateString("en-US", { month: "short", year: "numeric" })}`;
-}
-
-function getExpirationInfo(endDateIso: string): { label: string; color: string } {
-  const now = new Date();
-  const end = new Date(endDateIso);
-  const diffMs = end.getTime() - now.getTime();
-  const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-  if (daysLeft < 0) {
-    return { label: "Expired", color: "text-red-700 bg-red-50" };
-  }
-  if (daysLeft < 7) {
-    return { label: `Expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}!`, color: "text-red-700 bg-red-50 font-semibold" };
-  }
-  if (daysLeft <= 30) {
-    return { label: `Expires in ${daysLeft} days`, color: "text-yellow-700 bg-yellow-50" };
-  }
-  return {
-    label: `Expires ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
-    color: "text-green-700 bg-green-50",
-  };
 }
 
 const PURCHASE_TYPE_LABELS: Record<string, string> = {
