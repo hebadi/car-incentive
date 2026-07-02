@@ -119,6 +119,10 @@ function IncentiveRow({ inc }: { inc: IncentiveDetail }) {
   const [showClaim, setShowClaim] = useState(false);
   const expiration = inc.endDate ? getExpirationInfo(inc.endDate) : null;
   const hasClaimSteps = inc.claimSteps && inc.claimSteps.length > 0;
+
+  // Safety net: don't render expired incentives that slipped through
+  if (inc.endDate && new Date(inc.endDate) < new Date()) return null;
+
   return (
     <div className="rounded-lg bg-white/5 px-3 py-2">
       <div className="flex items-center justify-between">

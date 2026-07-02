@@ -4,7 +4,9 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from sqlalchemy import select, func
+from datetime import datetime, timezone
+
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -81,10 +83,12 @@ async def top_incentives_by_zip(
     BLOCKED_SOURCES = {"https://www.marketcheck.com", "https://www.marketcheck.com/"}
     MIN_CONFIDENCE = 0.4  # Filter out speculative/low-confidence incentives
 
-    # Load all active, credibly-sourced incentives
+    # Load all active, credibly-sourced, non-expired incentives
+    now = datetime.now(timezone.utc)
     stmt = select(IncentiveProgram).where(
         IncentiveProgram.is_active.is_(True),
         IncentiveProgram.funding_status.in_(["open", "waitlisted"]),
+        or_(IncentiveProgram.end_date.is_(None), IncentiveProgram.end_date > now),
     )
     result = await db.execute(stmt)
     all_incentives = [
